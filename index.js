@@ -1,6 +1,7 @@
 const { Client, Intents, MessageEmbed } = require('discord.js');
 const rankingsJson = require('./rankings.json');
 const client = new Client({ intents: [Intents.FLAGS.GUILDS, Intents.FLAGS.GUILD_MESSAGES, Intents.FLAGS.GUILD_MESSAGE_REACTIONS] });
+require('dotenv').config();
 
 const blazeBotId = '719675295006851072';
 const channels = [
@@ -11,8 +12,19 @@ const rankings = Object.keys(rankingsJson).map((key) => rankingsJson[key]);
 const embedColor = '#b265d8';
 const cancelEmoji = '❌'; // x
 const acceptEmoji = '✅'; // white_check_mark
+const loseEmoji = '🥈'; // second_place
+const winEmoji = '🏆'; // trophy
 
 var games = [];
+const DSR_DEFAULT = true;
+const STAGE_LIST = [
+	{ name: 'Final Destination' },
+	{ name: 'Battlefield' },
+	{ name: 'Yoshi\'s Story' },
+	{ name: 'Dreamland 64' },
+	{ name: 'Fountain of Dreams' },
+	{ name: 'Pokemon Stadium' },
+];
 
 client.on('ready', () => {
 	console.log(`Logged in as ${client.user.tag}!`);
@@ -42,13 +54,16 @@ client.on('messageCreate', async message => {
 		const player = foundPlayer
 			? foundPlayer
 			: { id: message.author.id, name: message.author.username, elo: 1500 };
+		const bo = arg === 'bo5'
+			? 5
+			: 3;
 
 		const rankedEmbed = new MessageEmbed()
-			.setTitle(foundPlayer.name + ' [' + foundPlayer.elo + '] is searching for a match... (' + arg + ')')
+			.setTitle(foundPlayer.name + ' [' + foundPlayer.elo + '] is searching for a match... (bo' + bo + ')')
 			.setColor(embedColor)
 			.setDescription(cancelEmoji + ' = Cancel search\n' + acceptEmoji + ' = Accept challenge');
 		const gameMessage = await message.channel.send({ embeds: [rankedEmbed] });
-		games.push({ messageId: gameMessage.id, players: [player] });
+		games.push({ messageId: gameMessage.id, players: [player], setType: bo, dsr: DSR_DEFAULT, game: 1, winner: -1, loser: -1, stageList: STAGE_LIST });
 		await gameMessage.react(cancelEmoji);
 		await gameMessage.react(acceptEmoji);
 	}
@@ -82,6 +97,7 @@ client.on('messageReactionAdd', async (reaction, user) => {
 	try {
 		await reaction.fetch();
 		const foundGame = games.find((game) => game.messageId === reaction.message.id);
+		const gameIndex = games.findIndex((game) => game.messageId === reaction.message.id);
 
 		switch (reaction.emoji.name) {
 			case cancelEmoji:
@@ -111,13 +127,61 @@ client.on('messageReactionAdd', async (reaction, user) => {
 						? foundPlayer
 						: { id: user.id, name: user.username, elo: 1500 };
 					games = games.map((game) => game.messageId === reaction.message.id ? { ...game, players: [...game.players, player] } : game);
-					const gameEmbed = new MessageEmbed()
+					const acceptedGameEmbed = new MessageEmbed()
 						.setTitle('Game 1')
 						.setColor(embedColor)
 						.setDescription('?')
-					reaction.message.edit({ embeds: [gameEmbed] });
+					reaction.message.edit({ embeds: [acceptedGameEmbed] });
+					await reaction.message.reactions.removeAll();
+					await reaction.message.react(loseEmoji);
+					await reaction.message.react(winEmoji);
 				}
 				break;
+			
+			case winEmoji:
+				const foundWinner = foundGame.players.find((player) => player.id == user.id);
+				const winnerIndex = foundGame.players.findIndex((player) => player.id == user.id);
+
+				const loserId = winnerIndex
+					? foundGame.players[0].id
+					: foundGame.players[1].id;
+
+				const loseReact = reaction.message.reactions.cache.find((reaction) => reaction.emoji.name === loseEmoji);
+				const loseReactionUsers = await loseReact.users.fetch();
+				const loserReact = loseReactionUsers.find((user) => user.id === loserId);
+				
+				if (foundWinner && loserReact) {
+					games[gameIndex] = { ...games[gameIndex], game: games[gameIndex].game + 1, winner: winnerIndex, loser: winnerIndex ? 0 : 1 };
+					const wonGameEmbed = new MessageEmbed()
+						.setTitle('Game ' + games[gameIndex].game)
+						.setColor(embedColor)
+						.setDescription('?')
+					reaction.message.edit({ embeds: [wonGameEmbed] });
+				}
+				break;
+
+			case loseEmoji:
+				const foundLoser = foundGame.players.find((player) => player.id == user.id);
+				const loserIndex = foundGame.players.findIndex((player) => player.id == user.id);
+
+				const winnerId = loserIndex
+					? foundGame.players[0].id
+					: foundGame.players[1].id;
+
+				const winReact = reaction.message.reactions.cache.find((reaction) => reaction.emoji.name === winEmoji);
+				const winReactionUsers = await winReact.users.fetch();
+				const winnerReact = winReactionUsers.find((user) => user.id === winnerId);
+				
+				if (foundLoser && winnerReact) {
+					games[gameIndex] = { ...games[gameIndex], game: games[gameIndex].game + 1, winner: loserIndex ? 0 : 1, loser: loserIndex };
+					const lostGameEmbed = new MessageEmbed()
+						.setTitle('Game ' + games[gameIndex].game)
+						.setColor(embedColor)
+						.setDescription('?')
+					reaction.message.edit({ embeds: [lostGameEmbed] });
+				}
+				break;
+
 			default:
 				break;
 		}
@@ -157,4 +221,4 @@ const buildLeaderboard = (p) => {
 	return LBContent + '```';
 };
 
-client.login('NzE5Njc1Mjk1MDA2ODUxMDcy.Xt6-Rg.UIvjKsqUcAeHBfbx93abyPkxIP8');
+client.login(process.env.BOT_TOKEN);
